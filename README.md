@@ -26,3 +26,39 @@ If so, then it is assumed to be a full message.
 If not, the message is assumed to be missing a final chunk (or more) and is dropped.
 
 There is a risk that the final chunk received meets the above criteria when it is, in fact, just the last chunk before some that are missing. This seems low risk, and the next stage of decoding will have to check for this.   
+There seems no fully robust manner to find the final chunk.   
+
+Pseudo-code for this is shown below - for the BLE callback and a function to check whether a packet has been received.   
+
+```
+#define BUF_SIZE 5000
+bool got_packet = false;
+
+byte buffer[BUF_SIZE];
+int buffer_index = 0;
+
+notify_callback(chunk_data, chunk_length) {
+  last_callback_time = mills();
+  // copy bytes to the buffer and update buffer_index
+  for (int i = 0; i < packet_length; i++)
+    buffer[buffer_index++] = packet_data[i];
+  final_byte = buffer[buffer_index - 1]; // get the last byte from this chunk 
+  if (chunk_length != 10 && chunk_length != 20 && chunk_length != 106 && final_byte == 0xf7)
+    got_packet = true;
+}
+```
+
+```
+#define CALLBACK_TIMEOUT 200
+
+bool check_received() {
+  if (got_packet) return true;  // we got a packet
+  if (millis() - last_callback_time > CALLBACK_TIMEOUT) {
+    final_byte = buffer[buffer_index-1];
+    if (final_byte == 0xf7) return true;  // timeout with a final byte of 0f7 so very likely a packet
+    // otherwise clear buffer, definitely failed to get a packet within time
+    buffer_index = 0;
+    return false;
+  }
+}
+```
