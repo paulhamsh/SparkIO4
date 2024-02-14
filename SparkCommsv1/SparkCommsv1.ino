@@ -55,12 +55,24 @@ void loop() {
     Serial.print("Block from Spark:  length: ");
     Serial.println(from_spark_index);
 
+    int lc = 16;
     for (int i = 0; i < from_spark_index; i++) {
       byte b = from_spark[i];
+      if (b == 0xf0) {
+        Serial.println();
+        lc = 6;
+      }
+      if (b == 0x01 && from_spark[i+1] == 0xfe) {
+        lc = 16;
+        Serial.println();
+      }
       if (b < 16) Serial.print("0");
       Serial.print(b, HEX);
       Serial.print(" ");
-      if (i % 32 == 31) Serial.println();
+      if (lc-- == 0) {
+        Serial.println();
+        lc = 8;
+      }
     }
     Serial.println();
 
