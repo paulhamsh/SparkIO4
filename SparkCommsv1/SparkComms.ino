@@ -2,18 +2,20 @@
 
 
 // Timer routines
-#define TIMEOUT 300000
+#define TIMEOUT 200000
 
 hw_timer_t *timer_sp = NULL;
 
-void ARDUINO_ISR_ATTR ping_sp() {
+void ARDUINO_ISR_ATTR timer_cb_sp() {
   if (from_spark_index != 0) {
     if (from_spark[from_spark_index-1] == 0xf7) {
+      // mark this as good and wait for the receiver to clear the buffer
       got_spark_block = true;
       last_spark_was_bad = false;
     }
     else {
       last_spark_was_bad = true;
+      // clear the buffer
       from_spark_index = 0;  
     }
   }  
@@ -21,7 +23,7 @@ void ARDUINO_ISR_ATTR ping_sp() {
 
 void setup_timer_sp() {
   timer_sp = timerBegin(0, 80, true);                // timer 0, prescale 80       
-  timerAttachInterrupt(timer_sp, &ping_sp, true);    // count up
+  timerAttachInterrupt(timer_sp, &timer_cb_sp, true);    // count up
 }
 
 void start_timer() {
@@ -61,7 +63,6 @@ class MyServerCallback : public BLEServerCallbacks {
   }
 };
 
-
 // Blocks sent to the app are max length 0xad or 173 bytes. This includes the 16 byte block header.
 // Without that header the block is 157 bytes.
 // For Spark 40 BLE they are sent as 100 bytes then 73 bytes.
@@ -96,7 +97,6 @@ void notifyCB_sp(BLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
 
   if (length != 20 && length != 10 && length != 106) {
     got_spark_block = true;
-    //from_spark_index = 0;
   }
   else {
     // not the end of a block so set up a timer
@@ -141,7 +141,7 @@ void connect_spark() {
     
     if (pClient_sp->connect(sp_device)) {
 #if defined CLASSIC  && !defined HELTEC_WIFI
-      pClient_sp->setMTU(517);  
+      //pClient_sp->setMTU(517);  
 #endif
 
       Serial.print("GetMTU ");
@@ -243,6 +243,10 @@ bool connect_to_all() {
 
   // timers for timeout
   setup_timer_sp();
+
+  // flags for data availability
+  got_app_block = false;
+  got_spark_block = false;
 
   return true;
 }

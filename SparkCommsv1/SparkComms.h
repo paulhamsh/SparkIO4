@@ -4,8 +4,8 @@
 enum {S40=0, MINI, GO} spark_type;
 char *ble_names[]{"Spark 40 BLE", "Spark MINI BLE", "Spark GO BLE"};
 
-//#define SPARK_BLE_NAME  "Spark 40 BLE"
-#define SPARK_BLE_NAME  "Spark MINI BLE"
+#define SPARK_BLE_NAME  "Spark 40 BLE"
+//#define SPARK_BLE_NAME  "Spark MINI BLE"
 //#define SPARK_BLE_NAME  "Spark GO BLE"
 
 #define DEBUG(x) Serial.println(x);

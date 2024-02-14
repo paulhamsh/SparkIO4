@@ -1,5 +1,6 @@
 #include "SparkComms.h"
 
+
 byte get_preset[]{0x01,0xFE,0x00,0x00,0x53,0xFE,0x3C,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 
                   0xF0,0x01,0x09,0x01,0x02,0x01,0x00,0x00, 0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 
                   0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 
@@ -16,8 +17,6 @@ void setup() {
   connect_to_all();
   DEBUG("Spark found and connected - starting");
 
-  got_app_block = false;
-  got_spark_block = false;
   ble_passthru = true;
 
   t = millis();
@@ -54,9 +53,17 @@ void loop() {
 
   if (got_spark_block) {
     Serial.print("Block from Spark:  length: ");
-    Serial.print(from_spark_index);
-    Serial.print(" : last byte ");
-    Serial.println(from_spark[from_spark_index-1], HEX);
+    Serial.println(from_spark_index);
+
+    for (int i = 0; i < from_spark_index; i++) {
+      byte b = from_spark[i];
+      if (b < 16) Serial.print("0");
+      Serial.print(b, HEX);
+      Serial.print(" ");
+      if (i % 32 == 31) Serial.println();
+    }
+    Serial.println();
+
     got_spark_block = false;
     last_spark_was_bad = false;
     from_spark_index = 0;
