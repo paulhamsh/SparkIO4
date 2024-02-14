@@ -69,7 +69,7 @@ void loop() {
       if (b < 16) Serial.print("0");
       Serial.print(b, HEX);
       Serial.print(" ");
-      if (lc-- == 0) {
+      if (--lc == 0) {
         Serial.println();
         lc = 8;
       }
