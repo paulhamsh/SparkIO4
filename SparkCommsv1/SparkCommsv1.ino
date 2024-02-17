@@ -1,10 +1,14 @@
 #include "SparkComms.h"
+#include "testdata.h"
 
-
-byte get_preset[]{0x01,0xFE,0x00,0x00,0x53,0xFE,0x3C,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 
-                  0xF0,0x01,0x09,0x01,0x02,0x01,0x00,0x00, 0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 
-                  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 
-                  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0xF7};
+byte get_preset[]{0x01, 0xFE, 0x00, 0x00, 0x53, 0xFE, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+                  0xF0, 0x01, 0x09, 0x01, 0x02, 0x01,
+                  0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00 ,0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                  0x00 ,0x00, 0x00, 0x00, 0x00,
+                  0xF7};
 int offset = 16;
 int preset_to_get;
 
@@ -15,23 +19,25 @@ bool do_it;
 byte block_clone[BLOCK_SIZE];
 int block_clone_length;
 
-byte block_trimmed[BLOCK_SIZE];
-byte block_bits[BLOCK_SIZE];
-byte block_processes[BLOCK_SIZE];
+//byte block_trimmed[BLOCK_SIZE];
+//byte block_bits[BLOCK_SIZE];
+//byte block_processes[BLOCK_SIZE];
 
 #define HEADER_LEN 6
 
 void dump_raw_block(byte *block, int block_length) {
-  Serial.print("Block from Spark - length: ");
+  Serial.print("Raw block - length: ");
   Serial.println(block_length);
 
   int lc = 8;
   for (int i = 0; i < block_length; i++) {
     byte b = block[i];
+    // 0xf001 chunk header
     if (b == 0xf0) {
       Serial.println();
       lc = 6;
     }
+    // 0x01fe block header
     if (b == 0x01 && block[i+1] == 0xfe) {
       lc = 16;
       Serial.println();
@@ -60,6 +66,7 @@ void dump_processed_block(byte *block, int block_length) {
     if (len == 0) {
       len = (block[pos+2] << 8) + block[pos+3];
       lc = HEADER_LEN;
+      Serial.println();
     }
     b = block[pos];
     if (b < 16) Serial.print("0");
@@ -80,7 +87,17 @@ void clone(byte *to, byte *from, int len) {
   memcpy(to, from, len);
 }
 
-int trim(byte *out_blk, byte *in_blk, int in_len) {
+// trim()
+// Removes any headers (0x01fe and 0xf001) from the packets and leaves the rest
+// Each new data block starts with a 6 byte header
+// 0  command
+// 1  sub-command
+// 2  total block length (inlcuding this header) (msb)
+// 3  total block length (including this header) (lsb)
+// 4  number of checksum errors in the original block
+// 5  sequence number of the original block
+
+int trim(byte *out_block, byte *in_block, int in_len) {
   int new_len  = 0;
   int in_pos   = 0;
   int out_pos  = 0;
@@ -96,22 +113,23 @@ int trim(byte *out_blk, byte *in_blk, int in_len) {
 
   while (in_pos < in_len) {
     // check for 0xf7 chunk ending
-    if (in_blk[in_pos] == 0xf7) {
+    if (in_block[in_pos] == 0xf7) {
        in_pos++;
-       out_blk[out_base + 2] = (out_pos - out_base) >> 8;
-       out_blk[out_base + 3] = (out_pos - out_base) & 0xff;
-       out_blk[out_base + 4] += (checksum != chk);
-       out_blk[out_base + 5] = sequence;
+       out_block[out_base + 2] = (out_pos - out_base) >> 8;
+       out_block[out_base + 3] = (out_pos - out_base) & 0xff;
+       out_block[out_base + 4] += (checksum != chk);
+       out_block[out_base + 5] = sequence;
     }    
-    // check for 0x01 0xfe start of Spark 40 16-byte block header
-    else if (in_blk[in_pos] == 0x01 && in_blk[in_pos + 1] == 0xfe) {
+    // check for 0x01fe start of Spark 40 16-byte block header
+    else if (in_block[in_pos] == 0x01 && in_block[in_pos + 1] == 0xfe) {
       in_pos += 16;
     }
-    else if (in_blk[in_pos] == 0xf0 && in_blk[in_pos + 1] == 0x01) {
-      sequence    = in_blk[in_pos + 2];
-      checksum    = in_blk[in_pos + 3];
-      command     = in_blk[in_pos + 4];
-      sub_command = in_blk[in_pos + 5];
+    // check for 0xf001 chunk header
+    else if (in_block[in_pos] == 0xf0 && in_block[in_pos + 1] == 0x01) {
+      sequence    = in_block[in_pos + 2];
+      checksum    = in_block[in_pos + 3];
+      command     = in_block[in_pos + 4];
+      sub_command = in_block[in_pos + 5];
 
 
       chk = 0;
@@ -121,14 +139,14 @@ int trim(byte *out_blk, byte *in_blk, int in_len) {
         last_sequence = sequence;
         out_base = out_pos;                     // move to end of last data
         out_pos  = out_pos + HEADER_LEN;        // save space for header      
-        out_blk[out_base]     = command;
-        out_blk[out_base + 1] = sub_command;
-        out_blk[out_base + 4] = 0;
+        out_block[out_base]     = command;
+        out_block[out_base + 1] = sub_command;
+        out_block[out_base + 4] = 0;
       }
     }
     else {
-      out_blk[out_pos] = in_blk[in_pos];
-      chk ^= in_blk[in_pos];
+      out_block[out_pos] = in_block[in_pos];
+      chk ^= in_block[in_pos];
       in_pos++;
       out_pos++;
     }
@@ -151,8 +169,7 @@ void fix_bit_eight(byte *in_block, int in_len) {
       len    -= HEADER_LEN;
     }
     else {
-      if (counter == 0) {
-        counter = 7;
+      if (counter % 8 == 0) {
         bitmask = 1;
         bits = in_block[in_pos];
       }
@@ -161,18 +178,70 @@ void fix_bit_eight(byte *in_block, int in_len) {
           in_block[in_pos] |= 0x80;
         }
         bitmask <<= 1;
-        counter--;
       }
+      counter++;
       len--;
       in_pos++;
     }
   }
 }
 
+
+int compact(byte *out_block, byte *in_block, int in_len) {
+  int len = 0;
+  int in_pos = 0;
+  int out_pos = 0;
+  int counter = 0;
+  int out_base = 0;
+
+  int command = 0;
+
+  while (in_pos < in_len) {
+    if (len == 0) {
+      // start of new block so prepare header and new out_base pointer
+      out_base = out_pos;
+      len  = (in_block[in_pos + 2] << 8) + in_block[in_pos + 3];
+      // fill in the out header (length will change!)
+      memcpy(&out_block[out_base], &in_block[in_pos], HEADER_LEN);
+      command = (in_block[in_pos] << 8) + in_block[in_pos + 1];
+      in_pos  += HEADER_LEN;
+      out_pos += HEADER_LEN;
+      len     -= HEADER_LEN;
+      counter = 0;
+    }
+    // if len is not 0
+    else {
+      // this is the bitmask, so we won't copy it
+      if (counter % 8 == 0) {      
+        in_pos++;
+      }
+      // this is the multi-chunk header so don't copy data - perhaps do some checks on this in future
+      else if (command == 0x0301 && (counter >= 1 && counter <= 3)) {   
+        in_pos++;
+      }
+      // otherwise we can copy it
+      else { 
+        out_block[out_pos] = in_block[in_pos];
+        out_pos++;
+        in_pos++;
+      }
+      counter++;
+      len--;
+      // if at end of the block, update the header length
+      if (len == 0) {
+        out_block[out_base + 2] = (out_pos - out_base) >> 8;
+        out_block[out_base + 3] = (out_pos - out_base) & 0xff;
+      }
+    }
+  }
+  return out_pos;
+}
+
+
 void setup() {
   Serial.begin(115200);
-  connect_to_all();
-  DEBUG("Spark found and connected - starting");
+  //connect_to_all();
+  DEBUG("Starting");
 
   ble_passthru = true;
 
@@ -181,30 +250,26 @@ void setup() {
   preset_to_get = 0;
 
 
-byte blk[]{0x01, 0xFE, 0x00, 0x00, 0x41, 0xFF, 0x4E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-           0xF0, 0x01, 0x4A, 0x13, 0x03, 0x37, 
-           0x02, 0x0D, 0x2D, 0x53, 0x77, 0x69, 0x74, 0x63, 
-           0x00, 0x68, 0x41, 0x78, 0x65, 0x4C, 0x65, 0x61, 
-           0x64, 0x64, 0x00, 0x4A, 0x3F, 0x79, 0x73, 0x68, 
-           0xF7, 
-           0xF0, 0x01, 0x4B, 0x0D, 0x03, 0x37, 
-           0x02, 0x0D, 0x2D, 0x53, 0x77, 0x69, 0x74, 0x63, 
-           0x00, 0x68, 0x41, 0x78, 0x65, 0x4C, 0x65, 0x61, 
-           0x64, 0x64, 0x00, 0x4A, 0x3F, 0x7B, 0x77, 0x70, 
-           0xF7, 
-           0x01, 0xFE, 0x00, 0x00, 0x41, 0xFF, 0x2F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-           0xF0, 0x01, 0x4C, 0x0F, 0x03, 0x37, 
-           0x02, 0x0D, 0x2D, 0x53, 0x77, 0x69, 0x74, 0x63, 
-           0x00, 0x68, 0x41, 0x78, 0x65, 0x4C, 0x65, 0x61, 
-           0x64, 0x64, 0x00, 0x4A, 0x3F, 0x7D, 0x7B, 0x78, 
-           0xF7};
+  int len;
+  int trim_len;
 
-    dump_raw_block(blk, sizeof(blk));
-    int trim_len = trim(blk, blk, sizeof(blk));
-    dump_processed_block(blk, trim_len);    
-    fix_bit_eight(blk, trim_len);
-    dump_processed_block(blk, trim_len);
+  dump_raw_block(blk, sizeof(blk));
+  trim_len = trim(blk, blk, sizeof(blk));
+  dump_processed_block(blk, trim_len);    
+  fix_bit_eight(blk, trim_len);
+  dump_processed_block(blk, trim_len);
+  len = compact(blk, blk, trim_len);
+  dump_processed_block(blk, len);
 
+  Serial.println("************************************************");
+
+  dump_raw_block(blk2, sizeof(blk2));
+  trim_len = trim(blk2, blk2, sizeof(blk2));
+  dump_processed_block(blk2, trim_len);    
+  fix_bit_eight(blk2, trim_len);
+  dump_processed_block(blk2, trim_len);
+  len = compact(blk2, blk2, trim_len);
+  dump_processed_block(blk2, len);
 }
 
 
