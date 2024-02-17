@@ -22,7 +22,7 @@ void ARDUINO_ISR_ATTR timer_cb_sp() {
 }
 
 void setup_timer_sp() {
-  timer_sp = timerBegin(0, 80, true);                // timer 0, prescale 80       
+  timer_sp = timerBegin(3, 80, true);                    // timer 3, prescale 80       
   timerAttachInterrupt(timer_sp, &timer_cb_sp, true);    // count up
 }
 

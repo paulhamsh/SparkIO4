@@ -194,6 +194,10 @@ int compact(byte *out_block, byte *in_block, int in_len) {
   int counter = 0;
   int out_base = 0;
 
+  int total_chunks;
+  int this_chunk;
+  int data_len;
+
   int command = 0;
 
   while (in_pos < in_len) {
@@ -216,7 +220,10 @@ int compact(byte *out_block, byte *in_block, int in_len) {
         in_pos++;
       }
       // this is the multi-chunk header so don't copy data - perhaps do some checks on this in future
-      else if (command == 0x0301 && (counter >= 1 && counter <= 3)) {   
+      else if (command == 0x0301 && ((counter % 32) >= 1 && (counter % 32) <= 3)) { 
+        if (counter % 32 == 1) total_chunks = in_block[in_pos];
+        if (counter % 32 == 2) this_chunk   = in_block[in_pos];
+        if (counter % 32 == 3) data_len     = in_block[in_pos];         
         in_pos++;
       }
       // otherwise we can copy it
@@ -240,7 +247,7 @@ int compact(byte *out_block, byte *in_block, int in_len) {
 
 void setup() {
   Serial.begin(115200);
-  //connect_to_all();
+  connect_to_all();
   DEBUG("Starting");
 
   ble_passthru = true;
@@ -249,7 +256,8 @@ void setup() {
   do_it = false;
   preset_to_get = 0;
 
-
+/*
+  // test the two testdata blocks
   int len;
   int trim_len;
 
@@ -270,10 +278,14 @@ void setup() {
   dump_processed_block(blk2, trim_len);
   len = compact(blk2, blk2, trim_len);
   dump_processed_block(blk2, len);
+*/
 }
 
 
 void loop() {
+  int len;
+  int trim_len;
+
   // pre-wait before starting to request presets
   if (millis() - t > 20000 && !do_it) {
     do_it = true;
@@ -281,7 +293,7 @@ void loop() {
   };
 
   // request presets in order
-  /*
+  
   if (millis() - t > 5000 && do_it) {
     Serial.println("Sending preset request");
     get_preset[offset + 2] = 0x30; // sequence number
@@ -293,8 +305,8 @@ void loop() {
     preset_to_get++;
     if (preset_to_get > 3) preset_to_get = 0;
   };
-  */
-  /*
+  
+  
   if (last_spark_was_bad) {
     Serial.println("Was a bad block");
     last_spark_was_bad = false;
@@ -302,7 +314,7 @@ void loop() {
 
   if (got_spark_block) {
     // swiftly make a copy of everything and 'free' the ble block
-    int len = from_spark_index;
+    len = from_spark_index;
     clone(block_clone, from_spark, len);
     dump_raw_block(block_clone, len);
     got_spark_block = false;
@@ -310,11 +322,13 @@ void loop() {
     from_spark_index = 0;
 
     //dump_raw_block(block_clone, len);
-    int trim_len = trim(block_clone, block_clone, len);
+    trim_len = trim(block_clone, block_clone, len);
     fix_bit_eight(block_clone, trim_len);
     dump_processed_block(block_clone, trim_len);
+    len = compact(block_clone,block_clone, trim_len);
+    dump_processed_block(block_clone, len);
   }
-  */
+  
 
    
 
