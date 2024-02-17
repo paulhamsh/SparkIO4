@@ -19,6 +19,8 @@ byte block_trimmed[BLOCK_SIZE];
 byte block_bits[BLOCK_SIZE];
 byte block_processes[BLOCK_SIZE];
 
+#define HEADER_LEN 6
+
 void dump_raw_block(byte *block, int block_length) {
   Serial.print("Block from Spark - length: ");
   Serial.println(block_length);
@@ -56,8 +58,8 @@ void dump_processed_block(byte *block, int block_length) {
 
   while (pos < block_length) {
     if (len == 0) {
-      len = block[pos+2] << 8 + block[pos+3];
-      lc = 5;
+      len = (block[pos+2] << 8) + block[pos+3];
+      lc = HEADER_LEN;
     }
     b = block[pos];
     if (b < 16) Serial.print("0");
@@ -93,12 +95,13 @@ int trim(byte *out_blk, byte *in_blk, int in_len) {
   byte checksum;
 
   while (in_pos < in_len) {
-    // check for 0xf7 chunnk ending
+    // check for 0xf7 chunk ending
     if (in_blk[in_pos] == 0xf7) {
        in_pos++;
-       out_blk[out_base + 2] = out_pos >> 8;
-       out_blk[out_base + 3] = out_pos & 0xff;
+       out_blk[out_base + 2] = (out_pos - out_base) >> 8;
+       out_blk[out_base + 3] = (out_pos - out_base) & 0xff;
        out_blk[out_base + 4] += (checksum != chk);
+       out_blk[out_base + 5] = sequence;
     }    
     // check for 0x01 0xfe start of Spark 40 16-byte block header
     else if (in_blk[in_pos] == 0x01 && in_blk[in_pos + 1] == 0xfe) {
@@ -117,7 +120,7 @@ int trim(byte *out_blk, byte *in_blk, int in_len) {
       if (sequence != last_sequence) {
         last_sequence = sequence;
         out_base = out_pos;                     // move to end of last data
-        out_pos  = out_pos + 5;                 // save space for header      
+        out_pos  = out_pos + HEADER_LEN;        // save space for header      
         out_blk[out_base]     = command;
         out_blk[out_base + 1] = sub_command;
         out_blk[out_base + 4] = 0;
@@ -144,8 +147,8 @@ void fix_bit_eight(byte *in_block, int in_len) {
   while (in_pos < in_len) {
     if (len == 0) {
       len = (in_block[in_pos + 2] << 8) + in_block[in_pos + 3];
-      in_pos += 5;
-      len -= 5;
+      in_pos += HEADER_LEN;
+      len    -= HEADER_LEN;
     }
     else {
       if (counter == 0) {
@@ -177,6 +180,31 @@ void setup() {
   do_it = false;
   preset_to_get = 0;
 
+
+byte blk[]{0x01, 0xFE, 0x00, 0x00, 0x41, 0xFF, 0x4E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+           0xF0, 0x01, 0x4A, 0x13, 0x03, 0x37, 
+           0x02, 0x0D, 0x2D, 0x53, 0x77, 0x69, 0x74, 0x63, 
+           0x00, 0x68, 0x41, 0x78, 0x65, 0x4C, 0x65, 0x61, 
+           0x64, 0x64, 0x00, 0x4A, 0x3F, 0x79, 0x73, 0x68, 
+           0xF7, 
+           0xF0, 0x01, 0x4B, 0x0D, 0x03, 0x37, 
+           0x02, 0x0D, 0x2D, 0x53, 0x77, 0x69, 0x74, 0x63, 
+           0x00, 0x68, 0x41, 0x78, 0x65, 0x4C, 0x65, 0x61, 
+           0x64, 0x64, 0x00, 0x4A, 0x3F, 0x7B, 0x77, 0x70, 
+           0xF7, 
+           0x01, 0xFE, 0x00, 0x00, 0x41, 0xFF, 0x2F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+           0xF0, 0x01, 0x4C, 0x0F, 0x03, 0x37, 
+           0x02, 0x0D, 0x2D, 0x53, 0x77, 0x69, 0x74, 0x63, 
+           0x00, 0x68, 0x41, 0x78, 0x65, 0x4C, 0x65, 0x61, 
+           0x64, 0x64, 0x00, 0x4A, 0x3F, 0x7D, 0x7B, 0x78, 
+           0xF7};
+
+    dump_raw_block(blk, sizeof(blk));
+    int trim_len = trim(blk, blk, sizeof(blk));
+    dump_processed_block(blk, trim_len);    
+    fix_bit_eight(blk, trim_len);
+    dump_processed_block(blk, trim_len);
+
 }
 
 
@@ -188,6 +216,7 @@ void loop() {
   };
 
   // request presets in order
+  /*
   if (millis() - t > 5000 && do_it) {
     Serial.println("Sending preset request");
     get_preset[offset + 2] = 0x30; // sequence number
@@ -199,7 +228,8 @@ void loop() {
     preset_to_get++;
     if (preset_to_get > 3) preset_to_get = 0;
   };
-
+  */
+  /*
   if (last_spark_was_bad) {
     Serial.println("Was a bad block");
     last_spark_was_bad = false;
@@ -214,11 +244,13 @@ void loop() {
     last_spark_was_bad = false;
     from_spark_index = 0;
 
-    //dump_block(block_clone, len);
+    //dump_raw_block(block_clone, len);
     int trim_len = trim(block_clone, block_clone, len);
     fix_bit_eight(block_clone, trim_len);
     dump_processed_block(block_clone, trim_len);
   }
+  */
 
+   
 
 }
