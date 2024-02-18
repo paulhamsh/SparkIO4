@@ -154,7 +154,7 @@ int trim(byte *out_block, byte *in_block, int in_len) {
   return out_pos;
 }
 
-
+/*
 void fix_bit_eight(byte *in_block, int in_len) {
   int len = 0;
   int in_pos = 0;
@@ -190,9 +190,9 @@ void fix_bit_eight(byte *in_block, int in_len) {
     }
   }
 }
+*/
 
 
-/*
 void fix_bit_eight(byte *in_block, int in_len) {
   int len = 0;
   int in_pos = 0;
@@ -221,10 +221,14 @@ void fix_bit_eight(byte *in_block, int in_len) {
       len--;
       in_pos++;
     }
+    if (counter % 150 == 0) {
+      counter = 0;
+    }
   }
 }
-*/
 
+
+/*
 int compact(byte *out_block, byte *in_block, int in_len) {
   int len = 0;
   int in_pos = 0;
@@ -288,7 +292,74 @@ int compact(byte *out_block, byte *in_block, int in_len) {
   }
   return out_pos;
 }
+*/
 
+int compact(byte *out_block, byte *in_block, int in_len) {
+  int len = 0;
+  int in_pos = 0;
+  int out_pos = 0;
+  int counter = 0;
+  int out_base = 0;
+
+  int total_chunks;
+  int this_chunk;
+  int data_len;
+
+  int command = 0;
+
+  while (in_pos < in_len) {
+    if (len == 0) {
+      // start of new block so prepare header and new out_base pointer
+      out_base = out_pos;
+      len  = (in_block[in_pos + 2] << 8) + in_block[in_pos + 3];
+      // fill in the out header (length will change!)
+      memcpy(&out_block[out_base], &in_block[in_pos], HEADER_LEN);
+      command = (in_block[in_pos] << 8) + in_block[in_pos + 1];
+      in_pos  += HEADER_LEN;
+      out_pos += HEADER_LEN;
+      len     -= HEADER_LEN;
+      counter = 0;
+    }
+    // if len is not 0
+    else {
+      // this is the bitmask, so we won't copy it
+      if (counter % 8 == 0) {      
+        in_pos++;
+      }
+      // this is the multi-chunk header from the spark - perhaps do some checks on this in future
+      else if (command == 0x0301 && ((counter % 32) >= 1 && (counter % 32) <= 3)) { 
+        if (counter % 32 == 1) total_chunks = in_block[in_pos];
+        if (counter % 32 == 2) this_chunk   = in_block[in_pos];
+        if (counter % 32 == 3) data_len     = in_block[in_pos];         
+        in_pos++;
+      }
+      // this is the multi-chunk header from the app - perhaps do some checks on this in future
+      else if (command == 0x0101 && (counter >= 1 && counter <= 3)) { 
+        if (counter == 1) total_chunks = in_block[in_pos];
+        if (counter == 2) this_chunk   = in_block[in_pos];
+        if (counter == 3) data_len     = in_block[in_pos];         
+        in_pos++;
+      }
+      // otherwise we can copy it
+      else { 
+        out_block[out_pos] = in_block[in_pos];
+        out_pos++;
+        in_pos++;
+      }
+      counter++;
+      len--;
+      // if at end of the block, update the header length
+      if (len == 0) {
+        out_block[out_base + 2] = (out_pos - out_base) >> 8;
+        out_block[out_base + 3] = (out_pos - out_base) & 0xff;
+      }
+      if (counter % 150 == 0) {
+        counter = 0;
+      }
+    }
+  }
+  return out_pos;
+}
 
 void setup() {
   Serial.begin(115200);
