@@ -16,8 +16,8 @@ unsigned long t;
 bool do_it;
 
 #define BLOCK_SIZE 1000
-byte block_clone[BLOCK_SIZE];
-int block_clone_length;
+byte block_spark[BLOCK_SIZE];
+byte block_app[BLOCK_SIZE];
 
 //byte block_trimmed[BLOCK_SIZE];
 //byte block_bits[BLOCK_SIZE];
@@ -159,6 +159,44 @@ void fix_bit_eight(byte *in_block, int in_len) {
   int len = 0;
   int in_pos = 0;
   int counter = 0;
+  byte bitmask = 0x80;
+  byte bits;
+
+  while (in_pos < in_len) {
+    if (len == 0) {
+      len = (in_block[in_pos + 2] << 8) + in_block[in_pos + 3];
+      in_pos += HEADER_LEN;
+      len    -= HEADER_LEN;
+    }
+    // if in a 150 byte packet (from app) then restart the bitmask for the next byte
+
+    else {
+      if (bitmask == 0x80) {
+        bitmask = 1;
+        bits = in_block[in_pos];
+      }
+      else {
+        if (bits & bitmask) {
+          in_block[in_pos] |= 0x80;
+        }
+        bitmask <<= 1;
+      }
+      counter++;
+      len--;
+      in_pos++;
+    }
+    if (counter % 150 == 0) {
+      bitmask = 0x80;
+    }
+  }
+}
+
+
+/*
+void fix_bit_eight(byte *in_block, int in_len) {
+  int len = 0;
+  int in_pos = 0;
+  int counter = 0;
   byte bitmask;
   byte bits;
 
@@ -185,7 +223,7 @@ void fix_bit_eight(byte *in_block, int in_len) {
     }
   }
 }
-
+*/
 
 int compact(byte *out_block, byte *in_block, int in_len) {
   int len = 0;
@@ -219,11 +257,18 @@ int compact(byte *out_block, byte *in_block, int in_len) {
       if (counter % 8 == 0) {      
         in_pos++;
       }
-      // this is the multi-chunk header so don't copy data - perhaps do some checks on this in future
+      // this is the multi-chunk header from the spark - perhaps do some checks on this in future
       else if (command == 0x0301 && ((counter % 32) >= 1 && (counter % 32) <= 3)) { 
         if (counter % 32 == 1) total_chunks = in_block[in_pos];
         if (counter % 32 == 2) this_chunk   = in_block[in_pos];
         if (counter % 32 == 3) data_len     = in_block[in_pos];         
+        in_pos++;
+      }
+      // this is the multi-chunk header from the app - perhaps do some checks on this in future
+      else if (command == 0x0101 && ((counter % 150) >= 1 && (counter % 150) <= 3)) { 
+        if (counter % 150 == 1) total_chunks = in_block[in_pos];
+        if (counter % 150 == 2) this_chunk   = in_block[in_pos];
+        if (counter % 150 == 3) data_len     = in_block[in_pos];         
         in_pos++;
       }
       // otherwise we can copy it
@@ -257,6 +302,7 @@ void setup() {
   preset_to_get = 0;
 
 /*
+
   // test the two testdata blocks
   int len;
   int trim_len;
@@ -279,6 +325,19 @@ void setup() {
   len = compact(blk2, blk2, trim_len);
   dump_processed_block(blk2, len);
 */
+
+  // test the two testdata blocks
+  int len;
+  int trim_len;
+
+  dump_raw_block(blk3, sizeof(blk3));
+  trim_len = trim(blk3, blk3, sizeof(blk3));
+  dump_processed_block(blk3, trim_len);    
+  fix_bit_eight(blk3, trim_len);
+  dump_processed_block(blk3, trim_len);
+  len = compact(blk3, blk3, trim_len);
+  dump_processed_block(blk3, len);
+
 }
 
 
@@ -294,6 +353,7 @@ void loop() {
 
   // request presets in order
   
+  /*
   if (millis() - t > 5000 && do_it) {
     Serial.println("Sending preset request");
     get_preset[offset + 2] = 0x30; // sequence number
@@ -305,30 +365,43 @@ void loop() {
     preset_to_get++;
     if (preset_to_get > 3) preset_to_get = 0;
   };
-  
+  */
   
   if (last_spark_was_bad) {
-    Serial.println("Was a bad block");
+    Serial.println("Spark sent a bad block");
     last_spark_was_bad = false;
+  }
+
+  if (last_app_was_bad) {
+    Serial.println("App sent a bad block");
+    last_app_was_bad = false;
   }
 
   if (got_spark_block) {
     // swiftly make a copy of everything and 'free' the ble block
     len = from_spark_index;
-    clone(block_clone, from_spark, len);
-    dump_raw_block(block_clone, len);
+    clone(block_spark, from_spark, len);
+    //dump_raw_block(block_clone, len);
     got_spark_block = false;
     last_spark_was_bad = false;
     from_spark_index = 0;
 
     //dump_raw_block(block_clone, len);
-    trim_len = trim(block_clone, block_clone, len);
-    fix_bit_eight(block_clone, trim_len);
-    dump_processed_block(block_clone, trim_len);
-    len = compact(block_clone,block_clone, trim_len);
-    dump_processed_block(block_clone, len);
+    trim_len = trim(block_spark, block_spark, len);
+    fix_bit_eight(block_spark, trim_len);
+    len = compact(block_spark, block_spark, trim_len);
+    dump_processed_block(block_spark, len);
   }
   
+  if (got_app_block) {
+    len = from_app_index;
+    clone(block_app, from_app, len);
+    //dump_raw_block(block_app, len);
+    got_app_block = false;
+    last_app_was_bad = false;
+    from_app_index = 0;
+    dump_raw_block(block_app, len);
+  }
 
    
 
