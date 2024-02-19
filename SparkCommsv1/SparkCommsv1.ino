@@ -197,11 +197,15 @@ void fix_bit_eight(byte *in_block, int in_len) {
   int len = 0;
   int in_pos = 0;
   int counter = 0;
+  int command = 0;
+
   byte bitmask;
   byte bits;
+  int cmd_sub = 0;
 
   while (in_pos < in_len) {
     if (len == 0) {
+      command = (in_block[in_pos] << 8) + in_block[in_pos];
       len = (in_block[in_pos + 2] << 8) + in_block[in_pos + 3];
       in_pos += HEADER_LEN;
       len    -= HEADER_LEN;
@@ -221,9 +225,11 @@ void fix_bit_eight(byte *in_block, int in_len) {
       len--;
       in_pos++;
     }
-    if (counter % 150 == 0) {
+    if (command == 0x0101 && counter == 150) 
       counter = 0;
-    }
+    if (command == 0x0301 && counter == 32) 
+      counter = 0;    
+
   }
 }
 
@@ -326,20 +332,19 @@ int compact(byte *out_block, byte *in_block, int in_len) {
       if (counter % 8 == 0) {      
         in_pos++;
       }
-      // this is the multi-chunk header from the spark - perhaps do some checks on this in future
-      else if (command == 0x0301 && ((counter % 32) >= 1 && (counter % 32) <= 3)) { 
-        if (counter % 32 == 1) total_chunks = in_block[in_pos];
-        if (counter % 32 == 2) this_chunk   = in_block[in_pos];
-        if (counter % 32 == 3) data_len     = in_block[in_pos];         
-        in_pos++;
+      else if ((command == 0x0301 || command == 0x0101 ) && (counter >= 1 && counter <= 3)) { 
+        if (counter == 1) total_chunks = in_block[in_pos++];
+        if (counter == 2) this_chunk   = in_block[in_pos++];
+        if (counter == 3) data_len     = in_block[in_pos++];         
       }
+      /*
       // this is the multi-chunk header from the app - perhaps do some checks on this in future
-      else if (command == 0x0101 && (counter >= 1 && counter <= 3)) { 
-        if (counter == 1) total_chunks = in_block[in_pos];
-        if (counter == 2) this_chunk   = in_block[in_pos];
-        if (counter == 3) data_len     = in_block[in_pos];         
-        in_pos++;
+      else if (command == 0x0101) && (counter >= 1 && counter <= 3)) {
+        if (counter == 1) total_chunks = in_block[in_pos++]; 
+        if (counter == 2) this_chunk   = in_block[in_pos++]; 
+        if (counter == 3) data_len     = in_block[in_pos++];    
       }
+      */
       // otherwise we can copy it
       else { 
         out_block[out_pos] = in_block[in_pos];
@@ -353,9 +358,10 @@ int compact(byte *out_block, byte *in_block, int in_len) {
         out_block[out_base + 2] = (out_pos - out_base) >> 8;
         out_block[out_base + 3] = (out_pos - out_base) & 0xff;
       }
-      if (counter % 150 == 0) {
+      if (command == 0x0101 && counter == 150) 
         counter = 0;
-      }
+      if (command == 0x0301 && counter == 32) 
+        counter = 0;    
     }
   }
   return out_pos;
@@ -363,7 +369,7 @@ int compact(byte *out_block, byte *in_block, int in_len) {
 
 void setup() {
   Serial.begin(115200);
-  connect_to_all();
+  //connect_to_all();
   DEBUG("Starting");
 
   ble_passthru = true;
@@ -372,12 +378,13 @@ void setup() {
   do_it = false;
   preset_to_get = 0;
 
-/*
+
 
   // test the two testdata blocks
   int len;
   int trim_len;
 
+/*
   dump_raw_block(blk, sizeof(blk));
   trim_len = trim(blk, blk, sizeof(blk));
   dump_processed_block(blk, trim_len);    
@@ -387,7 +394,7 @@ void setup() {
   dump_processed_block(blk, len);
 
   Serial.println("************************************************");
-
+*/
   dump_raw_block(blk2, sizeof(blk2));
   trim_len = trim(blk2, blk2, sizeof(blk2));
   dump_processed_block(blk2, trim_len);    
@@ -395,11 +402,9 @@ void setup() {
   dump_processed_block(blk2, trim_len);
   len = compact(blk2, blk2, trim_len);
   dump_processed_block(blk2, len);
-*/
+
 
   // test the two testdata blocks
-  int len;
-  int trim_len;
 
   dump_raw_block(blk3, sizeof(blk3));
   trim_len = trim(blk3, blk3, sizeof(blk3));
