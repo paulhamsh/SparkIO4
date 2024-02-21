@@ -32,7 +32,7 @@
  *  }
  * 
  * Sending functions:
- *     void create_preset(SparkPreset *preset);    
+ *     void create_preset(SparkPreset *preset);   
  *     void get_serial();    
  *     void turn_effect_onoff(char *pedal, bool onoff);    
  *     void change_hardware_preset(uint8_t preset_num);    
@@ -63,27 +63,6 @@
  * 
  */
 
-
-void dump_buf(char *hdr, uint8_t *buf, int len) {
- 
-  Serial.print(hdr);
-  Serial.print(" <");
-  Serial.print(buf[18], HEX);
-  Serial.print("> ");
-  Serial.print(buf[len-2], HEX);
-  Serial.print(" ");
-  Serial.print(buf[len-1], HEX);  
-  
-  int i;
-  for (i = 0; i < len ; i++) {
-    if (buf[i]<16) Serial.print("0");
-    Serial.print(buf[i], HEX);
-    Serial.print(" ");
-    if (i % 16 == 15) Serial.println();
-  };
-  Serial.println(); 
-}
-
 // UTILITY FUNCTIONS
 
 void uint_to_bytes(unsigned int i, uint8_t *h, uint8_t *l) {
@@ -96,21 +75,24 @@ void bytes_to_uint(uint8_t h, uint8_t l,unsigned int *i) {
 }
 
  
-// MAIN SparkIO CLASS
+// uint8_t chunk_header_from_spark[16]{0x01, 0xfe, 0x00, 0x00, 0x41, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+// uint8_t chunk_header_to_spark[16]  {0x01, 0xfe, 0x00, 0x00, 0x53, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-uint8_t chunk_header_from_spark[16]{0x01, 0xfe, 0x00, 0x00, 0x41, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-uint8_t chunk_header_to_spark[16]  {0x01, 0xfe, 0x00, 0x00, 0x53, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-
-
-// 
-// Main processing routine
+// ------------------------------------------------------------------------------------------------------------
+// Shared global variables
 //
-
+// block_from_spark holds the raw data from the Spark amp and data is processed in-place
+// block_from_app holds the raw data from the app and data is processed in-place
+// ------------------------------------------------------------------------------------------------------------
 
 byte block_from_spark[BLOCK_SIZE];
 byte block_from_app[BLOCK_SIZE];
 
 #define HEADER_LEN 6
+
+// ------------------------------------------------------------------------------------------------------------
+// Routines to dump full blocks of data
+// ------------------------------------------------------------------------------------------------------------
 
 void dump_raw_block(byte *block, int block_length) {
   Serial.print("Raw block - length: ");
@@ -169,6 +151,13 @@ void dump_processed_block(byte *block, int block_length) {
   Serial.println();
 }
 
+// ------------------------------------------------------------------------------------------------------------
+// Routines to process blocks of data to get to msgpack format
+//
+// trim()          - remove the 01fe and f001 headers, add 6 byte header to packet
+// fix_bit_eight() - add the missing eighth bit to each data byte
+// compact()       - remove the multi-chunk header and the eighth bit byte to get to msgpack data
+// ------------------------------------------------------------------------------------------------------------
 
 void clone(byte *to, byte *from, int len) {
   memcpy(to, from, len);
@@ -343,6 +332,9 @@ int compact(byte *out_block, byte *in_block, int in_len) {
   return out_pos;
 }
 
+// ------------------------------------------------------------------------------------------------------------
+// Routines to process the raw data into msgpack format and put into the message buffer
+// ------------------------------------------------------------------------------------------------------------
 
 void spark_process() 
 {
@@ -400,15 +392,19 @@ void app_process()
     trim_len = trim(block_from_app, block_from_app, len);
     fix_bit_eight(block_from_app, trim_len);
     len = compact(block_from_app, block_from_app, trim_len);
-    dump_processed_block(block_from_app, len);
+    //dump_processed_block(block_from_app, len);
 
-    //app_message_in.set_from_array(block_from_app, len); 
+    app_message_in.set_from_array(block_from_app, len); 
   }
 }
 
 
-// MESSAGE INPUT ROUTINES
-// Routine to read messages from the in_message ring buffer and copy to a message C structurer
+// ------------------------------------------------------------------------------------------------------------
+// MessageIn class
+// 
+// Message formatting routines to read the msgpack 
+// Read messages from the in_message ring buffer and copy to a SparkStructure format
+// ------------------------------------------------------------------------------------------------------------
 
 void MessageIn::set_from_array(uint8_t *in, int size) {
   in_message.set_from_array(in, size);
@@ -547,8 +543,16 @@ bool MessageIn::get_message(unsigned int *cmdsub, SparkMessage *msg, SparkPreset
   read_byte(&chksum_errors);
   read_byte(&sequence);
 
+
   bytes_to_uint(len_h, len_l, &len);
   bytes_to_uint(cmd, sub, &cs);
+
+  if (chksum_errors > 0) {
+    DEBUG("Got a checksum error - need to skip this chunk");
+    for (i = HEADER_LEN; i < len; i++) read_byte(&junk);
+    return false;
+  }
+
 
   *cmdsub = cs;
   switch (cs) {
@@ -725,9 +729,12 @@ bool MessageIn::get_message(unsigned int *cmdsub, SparkMessage *msg, SparkPreset
   return true;
 }
 
-//
-// Output routines
-//
+// ------------------------------------------------------------------------------------------------------------
+// MessageOut class
+// 
+// Message formatting routines to create the msgpack 
+// ead messages from the SparkStructure format and place into the out_message ring buffer 
+// ------------------------------------------------------------------------------------------------------------
 
 void MessageOut::start_message(int cmdsub)
 {
@@ -1056,7 +1063,4 @@ void MessageOut::create_preset(SparkPreset *preset)
   }
   write_byte_no_chksum (uint8_t(out_msg_chksum % 256));  
   end_message();
-  
-//  DEBUG("");
-//  out_message.dump3();
 }

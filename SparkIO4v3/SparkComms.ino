@@ -4,10 +4,15 @@
 // Timer routines
 #define TIMER 100000
 #define SPARK_TIMEOUT 200
+#define APP_TIMEOUT 200
 
 hw_timer_t *timer_sp = NULL;
+
 bool spark_timer_active = false;
 unsigned long last_spark_time;
+
+bool app_timer_active = false;
+unsigned long last_app_time;
 
 // this is to catch a good block that ends on a 10, 20 or 106 byte boundary via a timeout
 void ARDUINO_ISR_ATTR timer_cb_sp() {
@@ -27,6 +32,23 @@ void ARDUINO_ISR_ATTR timer_cb_sp() {
       }
     }  
   }
+
+  if (app_timer_active && (millis() - last_app_time > APP_TIMEOUT)) {
+    app_timer_active = false;
+    if (from_app_index != 0) {
+      if (from_app[from_app_index-1] == 0xf7) {
+        // mark this as good and wait for the receiver to clear the buffer
+        got_app_block = true;
+        last_app_was_bad = false;
+      }
+      else {
+        got_app_block = false;
+        last_app_was_bad = true;
+        // clear the buffer
+        from_app_index = 0;  
+      }
+    }  
+  }
 }
 
 void start_timer() {
@@ -34,6 +56,7 @@ void start_timer() {
   timerAlarmWrite(timer_sp, TIMER, true);
   timerAlarmEnable(timer_sp);
   spark_timer_active = false;
+  app_timer_active = false;
 }
 
 void setup_timer_sp() {
@@ -41,6 +64,7 @@ void setup_timer_sp() {
   timerAttachInterrupt(timer_sp, &timer_cb_sp, true);    // count up
   start_timer();
   spark_timer_active = false;
+  app_timer_active = false;
 }
 
 
@@ -131,23 +155,34 @@ class CharacteristicCallbacks: public BLECharacteristicCallbacks {
     // copy to the buffer 
     std::string s = pCharacteristic->getValue();  // do this to avoid the issue here: https://github.com/h2zero/NimBLE-Arduino/issues/413
     int length = s.size();
+
+    /*
     memcpy(&from_app[from_app_index], s.c_str(), length);
     from_app_index += length;
+    */
+
+    if (from_app_index + length < BLE_BUFSIZE) {
+      memcpy(&from_app[from_app_index], s.c_str(), length);
+      from_app_index += length;
+    }
+    else {
+      from_app_index = 0;
+      last_app_was_bad = true;
+      DEBUG("Exceeded app block size");
+    }
 
     // passthru
     if (ble_passthru) 
       pSender_sp->writeValue((uint8_t *) s.c_str(), length, false);
 
     // For Spark 40,  MINI and GO will be 100 then 73 for a block of 173
-    if (from_app[from_app_index-1] == 0xf7) { // there is a chance an f7 at the end is just by luck - let's see if this causes issues
-      //got_app_block = true;
-
-      Serial.print("Block (partial?) from the app: length ");
-      Serial.print(from_app_index);
-      Serial.print(" : last byte ");
-      Serial.println(from_app[from_app_index-1], HEX);
-      got_app_block = true;      
-      //from_app_index = 0;
+    if (length != 100 && length != 73) {
+      got_app_block = true;
+      app_timer_active = false;
+    }
+    else {
+      last_app_time = millis();
+      app_timer_active = true;
     }
   };
 };

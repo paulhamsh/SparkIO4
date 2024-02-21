@@ -78,6 +78,10 @@ class MessageOut
 
 MessageIn spark_message_in;
 MessageIn app_message_in;
+
+MessageOut spark_message_out(0x0101);
+MessageOut app_message_out(0x0301);
+
 void spark_process();
 void app_process();
 

@@ -18,10 +18,6 @@ int preset_to_get;
 unsigned long t;
 bool do_it;
 
-
-byte block_app[BLOCK_SIZE];
-
-
 void setup() {
   Serial.begin(115200);
   connect_to_all();
@@ -45,7 +41,7 @@ void loop() {
   int trim_len;
 
   // pre-wait before starting to request presets
-  if (millis() - t > 20000 && !do_it) {
+  if (millis() - t > 5000 && !do_it) {
     do_it = true;
     t = millis();
   };
@@ -55,34 +51,37 @@ void loop() {
   app_process();
 
   if (spark_message_in.get_message(&cmdsub, &message, &preset)) {
+    t = millis();                              //  add to the delay
     Serial.print("SPK: ");
     Serial.println(cmdsub, HEX);
+    if (cmdsub == 0x0301) Serial.println(preset.Name);
   };
 
 
   if (app_message_in.get_message(&cmdsub, &message, &preset)) {
+    t = millis();                              //  add to the delay
     Serial.print("APP: ");
     Serial.println(cmdsub, HEX);
+    if (cmdsub == 0x0101) Serial.println(preset.Name);
   };
 
-  /*
-  if (last_app_was_bad) {
-    Serial.println("App sent a bad block");
-    last_app_was_bad = false;
-  }
-  */
+  
+  if (millis() - t > 2000 && do_it) {
+    Serial.println("Sending preset request");
+    get_preset[offset + 2] = 0x30; // sequence number
+    get_preset[offset + 3] = preset_to_get; //checksum
+    get_preset[offset + 8] = preset_to_get;
 
-/*  
-  if (got_app_block) {
-    len = from_app_index;
-    clone(block_app, from_app, len);
-    //dump_raw_block(block_app, len);
-    got_app_block = false;
-    last_app_was_bad = false;
-    from_app_index = 0;
-    dump_raw_block(block_app, len);
-  }
-  */
+    pSender_sp->writeValue(get_preset, sizeof(get_preset), false);
+    t = millis();
+    preset_to_get++;
+    if (preset_to_get > 3) preset_to_get = 0;
+
+
+    //spark_message_out.change_hardware_preset(0, 1);
+    //spark_message_out.out_message.dump3();
+  };
+
    
 
 }
